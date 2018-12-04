@@ -1,0 +1,77 @@
+#!/usr/bin/env ruby
+
+require "httparty"
+require "json"
+require "optparse"
+
+class PivotalTracker
+  include HTTParty
+
+  base_uri 'www.pivotaltracker.com/services'
+  headers 'Accept' => 'application/json', 'X-TrackerToken' => ENV['PIVOTAL_TOKEN']
+
+  def iterations(project_id, iteration_number)
+    self.class.get("/v5/projects/#{project_id}/iterations/#{iteration_number}")
+  end
+
+end
+
+class Trello
+  include HTTParty
+
+  base_uri 'https://api.trello.com'
+  headers 'Accept' => 'application/json'
+
+  def initialize(key, token)
+    @key = key
+    @token = token
+  end
+
+  def create_list(board_id, name, pos)
+    self.class.post("/1/lists", query: { key: @key, token: @token, idBoard: board_id, name: name, pos: pos })
+  end
+end
+
+class Story
+
+  def initialize(dict)
+    # @see: https://www.pivotaltracker.com/help/api/rest/v5#story_resource
+    @name = dict['name']
+    @story_type = dict['story_type']
+    @estimate = dict['estimate']
+  end
+
+  def to_list_title
+    # you can change!!
+    "#{@name}"
+  end
+end
+
+# Parse options
+options = {}
+OptionParser.new do |opt|
+  opt.on('-p', '--project_id VALUE', 'PivotalTracker project_id') { |v| options[:project_id] = v }
+  opt.on('-i', '--iteration_number VALUE', 'PivotalTracker iteration_number') { |v| options[:iteration_number] = v }
+  opt.on('-b', '--board_id VALUE', 'Trello board_id') { |v| options[:board_id] = v }
+  opt.parse!(ARGV)
+end
+
+# Get Stories from PivotalTracker
+pivotal = PivotalTracker.new
+response = pivotal.iterations(options[:project_id], options[:iteration_number])
+titles = response['stories'].map { |s| Story.new(s).to_list_title }
+
+# TODO: thin out duplicated title list
+# ...
+
+
+# Add List to Trello
+trello = Trello.new(ENV['TRELLO_KEY'], ENV['TRELLO_TOKEN'])
+titles.each do |t|
+  response = trello.create_list(options[:board_id], t, 'bottom')
+  if response.code == 200
+    puts "created: #{t}"
+  else
+    puts "error: #{t}"
+  end
+end
